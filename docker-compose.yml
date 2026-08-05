@@ -1,0 +1,38 @@
+services:
+  airflow:
+    build: .
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      # Add dummy AWS credentials so Spark/Hadoop doesn't complain
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - LOCALSTACK_ENDPOINT=http://localstack:4566
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - ./spark:/opt/airflow/spark
+      - ./generator:/opt/airflow/generator
+      - ./dashboards:/opt/airflow/dashboards
+      - ./tests:/opt/airflow/tests
+    ports:
+      - "8082:8080"
+    depends_on:
+      - localstack
+    command: >
+      bash -c "airflow db migrate &&
+               airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true &&
+           (airflow scheduler &) &&
+           airflow webserver"
+
+  localstack:
+    # Use the OSS community image tag to avoid LocalStack Pro license checks
+    image: localstack/localstack:0.13.0
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+    volumes:
+      - ./localstack_init.sh:/docker-entrypoint-initaws.d/init.sh

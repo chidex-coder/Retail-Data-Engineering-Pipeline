@@ -1,0 +1,38 @@
+# RetailFlow Enterprise Data Generator Configuration
+project:
+  name: RetailFlow
+  base_date: "2024-01-01"
+
+output:
+  base_dir: "./data/raw"
+  formats: ["csv", "parquet"] # Supported: csv, json, parquet, excel, jsonl
+  partition_by: "year_month"
+
+entities:
+  customers:
+    count: 500000
+    error_rates:
+      duplicates: 0.04
+      missing_values: 0.03
+      mixed_date_formats: 0.05
+      invalid_emails: 0.02
+      mixed_encodings: 0.01
+      
+  products:
+    count: 120000
+    error_rates:
+      duplicate_skus: 0.02
+      negative_prices: 0.005
+      missing_brands: 0.04
+      missing_values: 0.03
+      html_in_text: 0.01
+      emojis_in_text: 0.01
+      schema_drift: 0.10 # 10% of files will have different column names
+
+  orders:
+    count: 15000000
+    error_rates:
+      duplicates: 0.04
+      missing_customer_ids: 0.03
+      negative_quantities: 0.01
+      invalid_dates: 0.05
