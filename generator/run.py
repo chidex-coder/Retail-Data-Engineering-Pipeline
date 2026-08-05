@@ -4,10 +4,10 @@ import pandas as pd
 import argparse
 from customers import generate_customers
 from products import generate_products
-from orders import generate_orders  # <-- Added this import
+from orders import generate_orders
 
 def load_config():
-    # This tells Python to look for config.yaml in the SAME folder as run.py
+    # Dynamically find config.yaml in the same folder as this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, 'config.yaml')
     
@@ -15,11 +15,16 @@ def load_config():
         return yaml.safe_load(file)
 
 def save_data(df, entity_name, config):
-    base_dir = os.path.join(config['output']['base_dir'], entity_name)
-    os.makedirs(base_dir, exist_ok=True)
+    # Dynamically resolve the output directory relative to the project root
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    base_dir = os.path.join(project_root, config['output']['base_dir'])
+    
+    entity_dir = os.path.join(base_dir, entity_name)
+    os.makedirs(entity_dir, exist_ok=True)
     
     for fmt in config['output']['formats']:
-        file_path = os.path.join(base_dir, f"{entity_name}_full.{fmt}")
+        file_path = os.path.join(entity_dir, f"{entity_name}_full.{fmt}")
         if fmt == 'csv':
             df.to_csv(file_path, index=False)
         elif fmt == 'parquet':
@@ -48,9 +53,13 @@ def main():
     products_df = generate_products(prod_count, config['entities']['products']['error_rates'])
     save_data(products_df, 'products', config)
     
-    # 3. Generate Orders <-- Added this block
+    # 3. Generate Orders
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    data_dir = os.path.join(project_root, config['output']['base_dir'])
+    
     order_count = int(config['entities']['orders']['count'] * args.scale)
-    orders_df = generate_orders(order_count, config['entities']['orders']['error_rates'], config['output']['base_dir'])
+    orders_df = generate_orders(order_count, config['entities']['orders']['error_rates'], data_dir)
     if not orders_df.empty:
         save_data(orders_df, 'orders', config)
 
