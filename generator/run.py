@@ -6,7 +6,11 @@ from customers import generate_customers
 from products import generate_products
 from orders import generate_orders  # <-- Added this import
 
-def load_config(config_path='config.yaml'):
+def load_config():
+    # This tells Python to look for config.yaml in the SAME folder as run.py
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(script_dir, 'config.yaml')
+    
     with open(config_path, 'r') as file:
         return yaml.safe_load(file)
 
