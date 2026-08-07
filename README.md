@@ -18,7 +18,7 @@
   </picture>
 </p>
 
-<p align="center"><sub>Every filter re-aggregates the full fact table in the browser. Shown in light and dark — the image follows your GitHub theme.</sub></p>
+<p align="center"><sub>Every filter re-aggregates the full fact table in the browser. Shown in light and dark.</sub></p>
 
 ---
 
