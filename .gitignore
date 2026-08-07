@@ -30,3 +30,6 @@ derby.log
 .idea/
 .vscode/
 *.swp
+
+# Local tooling
+.claude/
