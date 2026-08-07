@@ -11,6 +11,15 @@
 
 **https://chidex-coder.github.io/Retail-Data-Engineering-Pipeline/**
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="dashboards/preview-dark.png">
+    <img src="dashboards/preview-light.png" alt="RetailFlow Executive Dashboard: eight KPI cards, a filter bar with eight dimensions and a metric switch, and nine cross-filtered visuals covering revenue trend, brands, categories, cities, gender, payment methods, order status, top customers and monthly orders.">
+  </picture>
+</p>
+
+<p align="center"><sub>Every filter re-aggregates the full fact table in the browser. Shown in light and dark — the image follows your GitHub theme.</sub></p>
+
 ---
 
 # 📖 Project Overview
