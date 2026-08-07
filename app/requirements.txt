@@ -1,0 +1,7 @@
+# Runtime deps for the Dash app only — deliberately no PySpark.
+# The app reads the pre-built Gold parquet, so the image stays small.
+dash==4.4.1
+pandas==2.2.2
+pyarrow==15.0.2
+plotly==6.9.0
+gunicorn==23.0.0
