@@ -15,6 +15,10 @@
   var META = PAYLOAD.meta;
   var N = PAYLOAD.n;
 
+  // Chart geometry comes from shared/chart_theme.json, embedded at build time.
+  // app/figures.py reads the same file, so the two front-ends cannot drift.
+  var T = PAYLOAD.theme;
+
   /* ---------------------------------------------------------- decoding --
      Each column arrives as {t: "u8"|"u16"|"u32", d: base64}. The builder
      widens the type with the data, so the sentinel for "attribute unknown"
@@ -202,8 +206,8 @@
       paper_bgcolor: "rgba(0,0,0,0)",
       plot_bgcolor: "rgba(0,0,0,0)",
       font: {
-        family: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-        size: 12,
+        family: T.font.family,
+        size: T.font.size,
         color: cssVar("--text-secondary")
       },
       margin: { l: 8, r: 16, t: 10, b: 28 },
@@ -229,8 +233,6 @@
 
   /* --------------------------------------------------------- chart specs */
 
-  var MAX_BAR_PX = 42; // a three-bar chart should not render three slabs
-
   // Horizontal bar: labels on the left, values written on the mark, no x-axis.
   function hBarChart(rows, color, formatter, plotHeight) {
     var labels = rows.map(function (r) { return r.label; });
@@ -241,7 +243,7 @@
 
     // Bar width is in category units, so cap it when the chart has few rows.
     var height = plotHeight || 300;
-    var width = rows.length ? Math.min(0.65, (MAX_BAR_PX * rows.length) / height) : 0.65;
+    var width = rows.length ? Math.min(0.65, (T.bar.maxThicknessPx * rows.length) / height) : 0.65;
 
     return {
       data: [{
@@ -250,22 +252,22 @@
         x: values,
         y: labels,
         width: width,
-        marker: { color: colors, cornerradius: 4, line: { width: 0 } },
+        marker: { color: colors, cornerradius: T.bar.cornerRadius, line: { width: 0 } },
         text: text,
         textposition: "outside",
         cliponaxis: false,
-        textfont: { color: cssVar("--text-secondary"), size: 11.5 },
+        textfont: { color: cssVar("--text-secondary"), size: T.font.labelSize },
         customdata: rows.map(function (r) { return r.hover; }),
         hovertemplate: "<b>%{y}</b><br>%{customdata}<extra></extra>"
       }],
       layout: baseLayout({
-        bargap: 0.38,
-        margin: { l: 12, r: 62, t: 6, b: 10 },
-        xaxis: { visible: false, range: [0, max * 1.16], fixedrange: true },
+        bargap: T.bar.gap,
+        margin: T.bar.margin,
+        xaxis: { visible: false, range: [0, max * T.bar.headroom], fixedrange: true },
         yaxis: {
           automargin: true,
           ticklabelposition: "outside",
-          tickfont: { color: cssVar("--text-secondary"), size: 12 },
+          tickfont: { color: cssVar("--text-secondary"), size: T.font.size },
           showgrid: false,
           zeroline: false,
           showline: false,
@@ -282,23 +284,23 @@
         type: "bar",
         x: x,
         y: y,
-        marker: { color: color, cornerradius: 4, line: { width: 0 } },
+        marker: { color: color, cornerradius: T.column.cornerRadius, line: { width: 0 } },
         customdata: hover,
         hovertemplate: "<b>%{x|%b %Y}</b><br>%{customdata}<extra></extra>"
       }],
       layout: baseLayout({
-        bargap: 0.3,
-        margin: { l: 52, r: 16, t: 10, b: 34 },
+        bargap: T.column.gap,
+        margin: T.column.margin,
         hovermode: "x unified",
         xaxis: {
-          type: "date", tickformat: "%b %y", showgrid: false, zeroline: false,
-          linecolor: cssVar("--axis"), tickfont: { color: cssVar("--text-muted"), size: 11 },
-          fixedrange: true, nticks: 8
+          type: "date", tickformat: T.axis.dateTickFormat, showgrid: false, zeroline: false,
+          linecolor: cssVar("--axis"), tickfont: { color: cssVar("--text-muted"), size: T.font.tickSize },
+          fixedrange: true, nticks: T.axis.maxTicks
         },
         yaxis: {
           showgrid: true, gridcolor: cssVar("--grid"), gridwidth: 1, zeroline: false,
-          tickfont: { color: cssVar("--text-muted"), size: 11 }, tickformat: "~s",
-          fixedrange: true, rangemode: "tozero"
+          tickfont: { color: cssVar("--text-muted"), size: T.font.tickSize },
+          tickformat: T.axis.valueTickFormat, fixedrange: true, rangemode: "tozero"
         }
       })
     };
@@ -311,25 +313,28 @@
         mode: "lines+markers",
         x: x,
         y: y,
-        line: { color: color, width: 2 }, // linear: a smoothed spline invents months
-        marker: { size: 8, color: color, line: { width: 2, color: cssVar("--surface") } },
+        line: { color: color, width: T.line.width }, // linear: a spline invents months
+        marker: {
+          size: T.line.markerSize, color: color,
+          line: { width: T.line.markerRing, color: cssVar("--surface") }
+        },
         fill: "tozeroy",
-        fillcolor: hexToRgba(color, 0.12),
+        fillcolor: hexToRgba(color, T.line.fillOpacity),
         hovertemplate: "%{y:,.0f}<extra></extra>"
       }],
       layout: baseLayout({
-        margin: { l: 56, r: 18, t: 10, b: 34 },
+        margin: T.line.margin,
         hovermode: "x unified",
         xaxis: {
-          type: "date", tickformat: "%b %y", showgrid: false, zeroline: false,
-          linecolor: cssVar("--axis"), tickfont: { color: cssVar("--text-muted"), size: 11 },
-          fixedrange: true, nticks: 8, showspikes: true, spikemode: "across",
+          type: "date", tickformat: T.axis.dateTickFormat, showgrid: false, zeroline: false,
+          linecolor: cssVar("--axis"), tickfont: { color: cssVar("--text-muted"), size: T.font.tickSize },
+          fixedrange: true, nticks: T.axis.maxTicks, showspikes: true, spikemode: "across",
           spikethickness: 1, spikedash: "dot", spikecolor: cssVar("--axis")
         },
         yaxis: {
           showgrid: true, gridcolor: cssVar("--grid"), gridwidth: 1, zeroline: false,
-          tickprefix: prefix, tickformat: "~s", rangemode: "tozero",
-          tickfont: { color: cssVar("--text-muted"), size: 11 }, fixedrange: true
+          tickprefix: prefix, tickformat: T.axis.valueTickFormat, rangemode: "tozero",
+          tickfont: { color: cssVar("--text-muted"), size: T.font.tickSize }, fixedrange: true
         }
       })
     };

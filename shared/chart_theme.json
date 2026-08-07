@@ -1,0 +1,38 @@
+{
+  "_comment": "Chart geometry shared by the static report (dashboards/assets/app.js) and the Dash app (app/figures.py). Colours are NOT here: they live in dashboards/assets/app.css as CSS custom properties, which app.js reads at runtime and app/theme.py parses at import. One source per concern.",
+
+  "font": {
+    "family": "system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+    "size": 12,
+    "labelSize": 11.5,
+    "tickSize": 11
+  },
+
+  "bar": {
+    "cornerRadius": 4,
+    "gap": 0.38,
+    "maxThicknessPx": 42,
+    "headroom": 1.16,
+    "margin": { "l": 12, "r": 62, "t": 6, "b": 10 }
+  },
+
+  "column": {
+    "cornerRadius": 4,
+    "gap": 0.3,
+    "margin": { "l": 52, "r": 16, "t": 10, "b": 34 }
+  },
+
+  "line": {
+    "width": 2,
+    "markerSize": 8,
+    "markerRing": 2,
+    "fillOpacity": 0.12,
+    "margin": { "l": 56, "r": 18, "t": 10, "b": 34 }
+  },
+
+  "axis": {
+    "dateTickFormat": "%b %y",
+    "valueTickFormat": "~s",
+    "maxTicks": 8
+  }
+}

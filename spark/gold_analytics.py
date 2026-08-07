@@ -108,6 +108,28 @@ def to_pence(series):
     return series.fillna(0).mul(100).round().clip(lower=0).astype("int64")
 
 
+# Columns the Dash app reads. Categoricals keep the file ~1.6 MB and let it
+# load in single-digit milliseconds, so the served app needs no Spark at runtime.
+ANALYTICS_COLUMNS = [
+    "Year", "Month", "Category", "Brand", "PaymentMethod", "Gender",
+    "Status", "City", "CustomerName", "CustomerKey", "ProductKey",
+    "Revenue", "Profit", "Quantity",
+]
+CATEGORICAL_COLUMNS = [
+    "Category", "Brand", "PaymentMethod", "Gender", "Status", "City", "CustomerName",
+]
+
+
+def write_analytics_table(frame, path):
+    """Persist the cleaned, joined fact rows for the Dash app to serve from."""
+    table = frame[ANALYTICS_COLUMNS].copy()
+    for column in CATEGORICAL_COLUMNS:
+        table[column] = table[column].astype("category")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    table.to_parquet(path, compression="snappy", index=False)
+    return os.path.getsize(path)
+
+
 def build_payload(frame):
     """Dictionary-encode the flat frame into the client payload plus QA counts."""
     years = frame["Year"].astype("Int64").astype("object").where(frame["Year"].notna(), None)
@@ -136,6 +158,7 @@ def build_payload(frame):
             "rowCount": int(len(frame)),
             "productCount": len(product_keys),
         },
+        "theme": db.load_chart_theme(),
         "n": int(len(frame)),
         "dims": {
             "year": year_labels,
@@ -191,6 +214,10 @@ def main():
     print("Loading Gold tables and standardising dimension attributes...")
     frame = load_facts(spark, gold_dir).toPandas()
     print(f"  {len(frame):,} order lines loaded")
+
+    analytics_path = os.path.join(gold_dir, "analytics_facts.parquet")
+    size = write_analytics_table(frame, analytics_path)
+    print(f"  wrote {analytics_path} ({size / 1_048_576:.1f} MB) for the Dash app")
 
     print("Encoding the fact rows for the browser runtime...")
     payload, quality = build_payload(frame)

@@ -14,7 +14,9 @@ from string import Template
 import numpy as np
 import plotly.offline as pyo
 
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dashboards", "assets")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.join(_HERE, "..", "dashboards", "assets")
+CHART_THEME_PATH = os.path.join(_HERE, "..", "shared", "chart_theme.json")
 
 MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
                "July", "August", "September", "October", "November", "December"]
@@ -221,6 +223,14 @@ def _quality_markup(quality):
 def _read_asset(name):
     with open(os.path.join(ASSETS_DIR, name), "r", encoding="utf-8") as handle:
         return handle.read()
+
+
+def load_chart_theme():
+    """Chart geometry shared with the Dash app (see shared/chart_theme.json)."""
+    with open(CHART_THEME_PATH, "r", encoding="utf-8") as handle:
+        theme = json.load(handle)
+    theme.pop("_comment", None)
+    return theme
 
 
 def build_html(payload, quality, inline_plotly=True):
