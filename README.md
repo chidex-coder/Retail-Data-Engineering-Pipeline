@@ -99,6 +99,7 @@ This project demonstrates many of the technologies and engineering practices use
 | CI/CD | GitHub Actions |
 | Testing | Pytest |
 | Dashboard | Plotly.js, embedded in a self-contained HTML page |
+| Live app | Dash (Plotly) served by gunicorn on Fly.io |
 | Version Control | Git & GitHub |
 
 ---
@@ -113,6 +114,7 @@ This project demonstrates many of the technologies and engineering practices use
 - Star Schema Data Warehouse
 - Executive dashboard with browser-side cross-filtering across 8 dimensions
 - Self-contained, offline-capable HTML report (light and dark themes)
+- Live Dash app serving the same report from pandas, sharing one stylesheet
 - Automated Apache Airflow Pipeline
 - Dockerized Deployment
 - Automated Data Quality Testing
@@ -146,6 +148,16 @@ Retail-Data-Engineering-Pipeline/
 ├── docs/
 │   └── index.html                # GitHub Pages copy of the dashboard
 │
+├── app/                          # Dash app (live version)
+│   ├── main.py                   # layout + callbacks
+│   ├── figures.py                # Plotly figures, mirrors app.js
+│   ├── components.py             # KPI cards, filter bar
+│   ├── data.py                   # loads the Gold parquet, aggregates
+│   └── theme.py                  # reads colour tokens out of app.css
+│
+├── shared/
+│   └── chart_theme.json          # chart geometry, read by both front-ends
+│
 ├── data/
 │   ├── raw/                      # Bronze
 │   ├── silver/
@@ -159,7 +171,9 @@ Retail-Data-Engineering-Pipeline/
 │
 ├── .github/workflows/ci.yml
 ├── docker-compose.yml
-├── Dockerfile
+├── Dockerfile                    # Airflow image
+├── Dockerfile.dash               # Dash app image (no PySpark)
+├── fly.toml                      # Fly.io deployment
 └── requirements.txt
 ```
 
@@ -299,6 +313,47 @@ Writes `dashboards/executive_dashboard.html` and `docs/index.html` (the GitHub P
 
 ---
 
+# 🖥️ Live Dash App
+
+The same report, served by Python instead of precomputed into a file — a **Dash** app in `app/`, deployed to Fly.io.
+
+Why both? A static file can only answer questions it was built to answer. The eight filters combine into **1.6 billion** possible selections, so precomputing them all is impossible; the static build embeds the fact rows and aggregates them in the browser instead. The Dash app aggregates the same rows in pandas, per request. Two answers to the same constraint, and the contrast is the point:
+
+| | Static report | Dash app |
+|---|---|---|
+| Aggregation | JavaScript, in the browser | pandas, on the server |
+| Delivery | one file, opens offline | a running process |
+| Hosting | GitHub Pages | Fly.io |
+| Filter response | ~70 ms | ~26 ms compute + round trip |
+| Always available | yes | yes (machine kept warm) |
+
+### Shared by construction
+
+The two front-ends look identical because they read the same sources, not because anyone kept them in sync by hand:
+
+- **`dashboards/assets/app.css`** — Dash serves this folder directly, so both use one stylesheet
+- **`shared/chart_theme.json`** — bar radius, gaps, margins, tick formats
+- **Colours** — declared once as CSS custom properties; `app.js` reads them via `getComputedStyle`, `app/theme.py` parses the same declarations
+- **`data/gold/analytics_facts.parquet`** — the cleaned fact table both consume (1.6 MB, loads in 9 ms)
+
+The only deliberate duplication is trace assembly: ~150 lines of `app/figures.py` mirroring `app.js`, which no amount of sharing can avoid across two languages.
+
+### Running it
+
+```bash
+pip install -r app/requirements.txt
+python run_dash.py            # http://localhost:8050
+```
+
+The Docker image excludes PySpark entirely — the app reads the pre-built parquet, so it needs no JVM at runtime.
+
+```bash
+docker build -f Dockerfile.dash -t retailflow-dash .
+flyctl deploy
+```
+
+---
+
 # 🔄 Apache Airflow
 
 The entire ETL pipeline is fully automated using Apache Airflow.
@@ -407,6 +462,15 @@ python -m pytest tests/ -v
 ```
 
 Then open `dashboards/executive_dashboard.html` in a browser.
+
+## Run the Live Dash App
+
+```bash
+pip install -r app/requirements.txt
+python run_dash.py
+```
+
+Serves on `http://localhost:8050`. Needs `data/gold/analytics_facts.parquet`, which the pipeline step above produces.
 
 ## Start Airflow
 

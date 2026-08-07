@@ -1,0 +1,29 @@
+# Fly.io deployment for the live Dash dashboard.
+# The static report on GitHub Pages stays the headline; this is the
+# interactive version, kept warm so the demo link never shows a cold start.
+
+app = "retailflow-dashboard"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.dash"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = false
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks.health]
+  type = "http"
+  port = 8080
+  path = "/"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "20s"

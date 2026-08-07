@@ -1,0 +1,15 @@
+venv/
+.git/
+data/
+!data/gold/analytics_facts.parquet
+docs/
+dashboards/*.html
+dashboards/*.png
+generator/
+spark/
+airflow/
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

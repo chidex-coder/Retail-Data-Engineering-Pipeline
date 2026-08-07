@@ -1,0 +1,18 @@
+# Dash app image. Deliberately excludes PySpark: the app serves a pre-built
+# Gold parquet, so it needs no JVM and no Spark at runtime.
+FROM python:3.9-slim
+
+WORKDIR /srv
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+COPY app/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/ ./app/
+COPY shared/ ./shared/
+COPY dashboards/assets/ ./dashboards/assets/
+COPY data/gold/analytics_facts.parquet ./data/gold/analytics_facts.parquet
+
+EXPOSE 8080
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", \
+     "--timeout", "60", "--access-logfile", "-", "app.main:server"]
