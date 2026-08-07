@@ -1,136 +1,210 @@
+"""Gold layer -> RetailFlow Executive Business Intelligence Dashboard.
+
+Reads the Gold star schema, standardises the dimension attributes that arrive
+dirty from the source systems (HTML fragments, emoji, "NULL"/"Unknown"/"-"
+placeholders), then hands the fact rows to `dashboard_builder`, which renders a
+single self-contained, cross-filterable HTML report.
+"""
+
 import os
+import sys
+from datetime import datetime, timezone
+
+import pandas as pd
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, round, desc, count
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from pyspark.sql import functions as F
 
-def main():
-    # 1. Initialize Spark with S3/LocalStack Configurations
-    spark = SparkSession.builder \
-        .appName("RetailFlow_Pipeline") \
-        .master("local[*]") \
-        .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262") \
-        .config("spark.hadoop.fs.s3a.endpoint", "http://localhost:4566") \
-        .config("spark.hadoop.fs.s3a.path.style.access", "true") \
-        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
-        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
-        .getOrCreate()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-    spark.sparkContext.setLogLevel("ERROR")
-    gold_dir = "./data/gold"
-    dash_dir = "./dashboards"
-    os.makedirs(dash_dir, exist_ok=True)
+import dashboard_builder as db  # noqa: E402
 
-    # 2. Load Gold Tables
-    print("Loading Gold tables for analytics...")
+# Placeholders the source systems use for "we don't know". Compared lower-cased.
+BLANK_TOKENS = ["", "-", "--", "n/a", "na", "null", "none", "nil", "nan", "unknown", "?"]
+
+
+def tidy(column):
+    """Strip HTML tags and non-printable junk, then null out placeholder values."""
+    text = column.cast("string")
+    text = F.regexp_replace(text, r"<[^>]*>", "")       # <b>Sony</b> -> Sony
+    text = F.regexp_replace(text, r"[^\x20-\x7E]", "")  # IKEA<emoji> -> IKEA
+    text = F.trim(text)
+    return F.when(text.isNull() | F.lower(text).isin(BLANK_TOKENS), F.lit(None)).otherwise(text)
+
+
+def normalise_gender(column):
+    value = F.upper(tidy(column))
+    return (F.when(value.isin("M", "MALE"), F.lit("Male"))
+             .when(value.isin("F", "FEMALE"), F.lit("Female"))
+             .when(value.isin("OTHER", "NON-BINARY", "NONBINARY", "X"), F.lit("Other"))
+             .otherwise(F.lit(None)))
+
+
+def load_facts(spark, gold_dir):
+    """Join the star schema into one flat, cleaned frame of order lines."""
     fact_sales = spark.read.parquet(os.path.join(gold_dir, "fact_sales"))
     dim_product = spark.read.parquet(os.path.join(gold_dir, "dim_product"))
+    dim_customer = spark.read.parquet(os.path.join(gold_dir, "dim_customer"))
     dim_date = spark.read.parquet(os.path.join(gold_dir, "dim_date"))
 
-    # ==========================================
-    # 3. Executive KPIs (Console Output)
-    # ==========================================
-    print("\n" + "="*40)
-    print("EXECUTIVE DASHBOARD SUMMARY")
-    print("="*40)
-    
-    total_revenue = fact_sales.agg({"Revenue": "sum"}).first()[0]
-    total_profit = fact_sales.agg({"Profit": "sum"}).first()[0]
-    total_orders = fact_sales.select("OrderID_BK").distinct().count()
-
-    print(f"Total Revenue:  £{total_revenue:,.2f}")
-    print(f"Total Profit:   £{total_profit:,.2f}")
-    print(f"Total Orders:   {total_orders:,}")
-    print("="*40)
-
-    # ==========================================
-    # 4. Prepare Data for Plotly (Convert Spark -> Pandas)
-    # ==========================================
-    print("\nPreparing data for unified Plotly dashboard...")
-
-    # Top 5 Products by Revenue
-    top_products = fact_sales.join(dim_product, "ProductKey") \
-        .groupBy("Category", "Brand") \
-        .agg(round(sum("Revenue"), 2).alias("TotalRevenue")) \
-        .orderBy(desc("TotalRevenue")) \
-        .limit(5)
-    df_top_products = top_products.toPandas()
-
-    # Monthly Revenue Trend
-    monthly_trend = fact_sales.join(dim_date, "DateKey") \
-        .withColumn("YearMonth", col("Year") * 100 + col("Month")) \
-        .groupBy("YearMonth") \
-        .agg(round(sum("Revenue"), 2).alias("MonthlyRevenue")) \
-        .orderBy("YearMonth")
-    df_monthly_trend = monthly_trend.toPandas()
-
-    # Order Status Distribution
-    status_dist = fact_sales.groupBy("Status").count().withColumnRenamed("count", "OrderCount")
-    df_status = status_dist.toPandas()
-
-    # ==========================================
-    # 5. Generate Unified Plotly Dashboard
-    # ==========================================
-    print("Generating unified interactive HTML dashboard...")
-
-    # Create a 2x2 grid layout. The bottom row spans both columns for the time series.
-    fig = make_subplots(
-        rows=2, cols=2,
-        specs=[[{"type": "xy"}, {"type": "domain"}],
-               [{"type": "xy", "colspan": 2}, None]],
-        subplot_titles=("Top 5 Products by Revenue", "Order Status Distribution", "Monthly Revenue Trend")
+    products = dim_product.select(
+        "ProductKey",
+        tidy(F.col("Category")).alias("Category"),
+        tidy(F.col("Brand")).alias("Brand"),
     )
 
-    # Chart 1: Top 5 Products (Bar Chart - Top Left)
-    fig.add_trace(
-        go.Bar(
-            x=df_top_products["Brand"], 
-            y=df_top_products["TotalRevenue"],
-            name="Revenue",
-            marker_color='royalblue',
-            text=df_top_products["TotalRevenue"],
-            texttemplate='£%{text:,.2s}'
-        ),
-        row=1, col=1
+    customers = dim_customer.select(
+        "CustomerKey",
+        normalise_gender(F.col("Gender")).alias("Gender"),
+        tidy(F.col("City")).alias("City"),
+        F.trim(F.concat_ws(" ", tidy(F.col("FirstName")), tidy(F.col("LastName")))).alias("CustomerName"),
+    ).withColumn(
+        "CustomerName",
+        F.when(F.col("CustomerName") == "", F.lit(None)).otherwise(F.col("CustomerName")),
     )
 
-    # Chart 2: Order Status (Pie Chart - Top Right)
-    fig.add_trace(
-        go.Pie(
-            labels=df_status["Status"], 
-            values=df_status["OrderCount"],
-            name="Status",
-            hole=0.4
-        ),
-        row=1, col=2
+    dates = dim_date.select("DateKey", "Year", "Month")
+
+    # Left joins on the dimensions: an order line with an unresolved attribute
+    # still belongs in the revenue totals, it just drops out of that breakdown.
+    facts = (fact_sales
+             .join(F.broadcast(products), "ProductKey", "left")
+             .join(F.broadcast(customers), "CustomerKey", "left")
+             .join(F.broadcast(dates), "DateKey", "left"))
+
+    return facts.select(
+        F.col("Year"),
+        F.col("Month"),
+        F.col("Category"),
+        F.col("Brand"),
+        tidy(F.col("PaymentMethod")).alias("PaymentMethod"),
+        F.col("Gender"),
+        F.initcap(tidy(F.col("Status"))).alias("Status"),
+        F.col("City"),
+        F.col("CustomerName"),
+        F.col("CustomerKey"),
+        F.col("ProductKey"),
+        F.col("Revenue"),
+        F.col("Profit"),
+        F.col("Quantity"),
     )
 
-    # Chart 3: Monthly Trend (Line Chart - Bottom Spanning)
-    fig.add_trace(
-        go.Scatter(
-            x=df_monthly_trend["YearMonth"], 
-            y=df_monthly_trend["MonthlyRevenue"],
-            mode="lines+markers",
-            name="Monthly Revenue",
-            line=dict(color="firebrick", width=2)
-        ),
-        row=2, col=1
-    )
 
-    # Update layout and titles
-    fig.update_layout(
-        title_text=f"<b>RetailFlow Executive Dashboard</b><br>Total Revenue: £{total_revenue:,.2f} | Total Profit: £{total_profit:,.2f}",
-        title_x=0.5,
-        height=800,
-        showlegend=False
-    )
+def codes_and_labels(series):
+    """Dictionary-encode a column: codes (-1 where missing) plus sorted labels."""
+    labels = sorted(series.dropna().unique().tolist())
+    categorical = pd.Categorical(series, categories=labels)
+    return categorical.codes.astype("int64"), [str(label) for label in labels]
 
-    # Save the single unified HTML file
-    dashboard_path = os.path.join(dash_dir, "executive_dashboard.html")
-    fig.write_html(dashboard_path)
 
-    print(f"\nSuccess! Unified dashboard saved to: {dashboard_path}")
+def keyed_codes(keys, labels_by_key):
+    """Encode by surrogate key so two customers sharing a name stay distinct."""
+    unique_keys = sorted(keys.dropna().unique().tolist())
+    categorical = pd.Categorical(keys, categories=unique_keys)
+    labels = [str(labels_by_key.get(key) or f"Customer {int(key)}") for key in unique_keys]
+    return categorical.codes.astype("int64"), labels
+
+
+def to_pence(series):
+    return series.fillna(0).mul(100).round().clip(lower=0).astype("int64")
+
+
+def build_payload(frame):
+    """Dictionary-encode the flat frame into the client payload plus QA counts."""
+    years = frame["Year"].astype("Int64").astype("object").where(frame["Year"].notna(), None)
+    year_codes, year_labels = codes_and_labels(pd.Series(years))
+    category_codes, category_labels = codes_and_labels(frame["Category"])
+    brand_codes, brand_labels = codes_and_labels(frame["Brand"])
+    payment_codes, payment_labels = codes_and_labels(frame["PaymentMethod"])
+    gender_codes, gender_labels = codes_and_labels(frame["Gender"])
+    status_codes, status_labels = codes_and_labels(frame["Status"])
+    city_codes, city_labels = codes_and_labels(frame["City"])
+
+    names_by_key = (frame[["CustomerKey", "CustomerName"]]
+                    .dropna(subset=["CustomerKey"])
+                    .drop_duplicates("CustomerKey")
+                    .set_index("CustomerKey")["CustomerName"].to_dict())
+    customer_codes, customer_labels = keyed_codes(frame["CustomerKey"], names_by_key)
+
+    product_keys = sorted(frame["ProductKey"].dropna().unique().tolist())
+    product_codes = pd.Categorical(frame["ProductKey"], categories=product_keys).codes.astype("int64")
+
+    months = frame["Month"].fillna(0).astype("int64")  # 0 = order date unresolved
+
+    payload = {
+        "meta": {
+            "generated": datetime.now(timezone.utc).strftime("%d %b %Y · %H:%M UTC"),
+            "rowCount": int(len(frame)),
+            "productCount": len(product_keys),
+        },
+        "n": int(len(frame)),
+        "dims": {
+            "year": year_labels,
+            "month": db.MONTH_NAMES,
+            "category": category_labels,
+            "brand": brand_labels,
+            "payment": payment_labels,
+            "gender": gender_labels,
+            "status": status_labels,
+            "city": city_labels,
+            "customer": customer_labels,
+        },
+        "cols": {
+            "year": db.dim_column(year_codes, len(year_labels)),
+            "month": db.value_column(months),
+            "category": db.dim_column(category_codes, len(category_labels)),
+            "brand": db.dim_column(brand_codes, len(brand_labels)),
+            "payment": db.dim_column(payment_codes, len(payment_labels)),
+            "gender": db.dim_column(gender_codes, len(gender_labels)),
+            "status": db.dim_column(status_codes, len(status_labels)),
+            "city": db.dim_column(city_codes, len(city_labels)),
+            "customer": db.dim_column(customer_codes, len(customer_labels)),
+            "product": db.dim_column(product_codes, len(product_keys)),
+            "revenue": db.value_column(to_pence(frame["Revenue"])),
+            "profit": db.value_column(to_pence(frame["Profit"])),
+            "quantity": db.value_column(frame["Quantity"].fillna(0).astype("int64")),
+        },
+    }
+
+    quality = [
+        ("without a brand", int((brand_codes < 0).sum())),
+        ("without a payment method", int((payment_codes < 0).sum())),
+        ("without a gender", int((gender_codes < 0).sum())),
+        ("without an order date", int((year_codes < 0).sum())),
+    ]
+
+    return payload, quality
+
+
+def main():
+    spark = (SparkSession.builder
+             .appName("RetailFlow_Pipeline")
+             .master("local[*]")
+             .getOrCreate())
+    spark.sparkContext.setLogLevel("ERROR")
+
+    gold_dir = os.path.join("./data", "gold")
+    outputs = [
+        os.path.join("./dashboards", "executive_dashboard.html"),
+        os.path.join("./docs", "index.html"),  # GitHub Pages copy
+    ]
+
+    print("Loading Gold tables and standardising dimension attributes...")
+    frame = load_facts(spark, gold_dir).toPandas()
+    print(f"  {len(frame):,} order lines loaded")
+
+    print("Encoding the fact rows for the browser runtime...")
+    payload, quality = build_payload(frame)
+    for label, value in quality:
+        print(f"  {value:>8,} rows {label}")
+
+    print("Rendering the executive dashboard...")
+    page = db.build_html(payload, quality)
+    for path, size in db.write_dashboard(page, outputs):
+        print(f"  wrote {path} ({size / 1_048_576:.1f} MB)")
+
+    print("\nSuccess! Open dashboards/executive_dashboard.html in a browser.")
     spark.stop()
+
 
 if __name__ == "__main__":
     main()
