@@ -1,0 +1,32 @@
+# Python environments
+venv/
+.venv/
+env/
+ENV/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Airflow runtime
+airflow/logs/
+airflow.db
+airflow.cfg
+webserver_config.py
+standalone_admin_password.txt
+
+# Spark / Hadoop scratch
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Editors & OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
