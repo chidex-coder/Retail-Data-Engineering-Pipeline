@@ -564,7 +564,7 @@ retail_flow_pipeline
 
 **Chiagoziem Cyriacus Ugoh**
 
-Data Engineer | Data Analyst | Python Developer
+Full Stack Data Professional | Data Engineer | Data Analyst | Python Developer
 
 GitHub: https://github.com/chidex-coder
 
